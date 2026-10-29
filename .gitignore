@@ -1,0 +1,9 @@
+node_modules/
+*.tgz
+.env
+.env.*
+!.env.example
+accounts.json
+auth.json
+coverage/
+.DS_Store
