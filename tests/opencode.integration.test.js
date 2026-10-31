@@ -41,14 +41,14 @@ test("OpenCode installs the package and exposes its OAuth methods in an isolated
   let output = ""
   child.stderr.on("data", (chunk) => { output += chunk.toString() })
   const address = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`Servidor OpenCode não iniciou: ${output}`)), 30_000)
+    const timer = setTimeout(() => reject(new Error(`OpenCode server did not start: ${output}`)), 30_000)
     child.stdout.on("data", (chunk) => {
       output += chunk.toString()
       const found = output.match(/https?:\/\/127\.0\.0\.1:\d+/)
       if (found) { clearTimeout(timer); resolve(found[0]) }
     })
     child.once("error", (error) => { clearTimeout(timer); reject(error) })
-    child.once("exit", (code) => { clearTimeout(timer); reject(new Error(`OpenCode saiu com ${code}: ${output}`)) })
+    child.once("exit", (code) => { clearTimeout(timer); reject(new Error(`OpenCode exited with ${code}: ${output}`)) })
   })
   const methodsResponse = await fetch(`${address}/provider/auth`, { signal: AbortSignal.timeout(90_000) })
   assert.equal(methodsResponse.status, 200)

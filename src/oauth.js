@@ -42,6 +42,7 @@ async function tokenRequest(fetcher, issuer, fields) {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ ...fields, client_id: CLIENT_ID }).toString(),
+    redirect: "error",
     signal: AbortSignal.timeout(30_000),
   })
   if (!response.ok) {
@@ -67,14 +68,25 @@ export async function refreshIfNeeded(store, id, options = {}) {
   })
 }
 
+export async function refreshNative(auth, options = {}) {
+  const tokens = await tokenRequest(options.fetch ?? fetch, ISSUER, {
+    grant_type: "refresh_token",
+    refresh_token: auth.refresh,
+  })
+  const { type: _type, ...credentials } = authResult(tokens, auth.accountId, auth.userId)
+  return { type: "oauth", ...credentials }
+}
+
 export async function authorizeDevice(options = {}) {
+  options.signal?.throwIfAborted()
   const issuer = options.issuer ?? ISSUER
   const fetcher = options.fetch ?? fetch
+  const signal = () => options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000)
   const response = await fetcher(`${issuer}/api/accounts/deviceauth/usercode`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: CLIENT_ID }),
-    signal: AbortSignal.timeout(30_000),
+    signal: signal(),
   })
   if (!response.ok) throw new Error(`Could not start device login (HTTP ${response.status})`)
   const device = await response.json()
@@ -87,11 +99,12 @@ export async function authorizeDevice(options = {}) {
     async callback() {
       const deadline = Date.now() + 15 * 60_000
       while (Date.now() < deadline) {
+        options.signal?.throwIfAborted()
         const result = await fetcher(`${issuer}/api/accounts/deviceauth/token`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ device_auth_id: device.device_auth_id, user_code: device.user_code }),
-          signal: AbortSignal.timeout(30_000),
+          signal: signal(),
         })
         if (result.ok) {
           const data = await result.json()
@@ -104,7 +117,7 @@ export async function authorizeDevice(options = {}) {
           return authResult(tokens)
         }
         if (result.status !== 403 && result.status !== 404) return { type: "failed" }
-        await (options.sleep ?? delay)(interval)
+        await (options.sleep ?? delay)(interval, undefined, { signal: options.signal })
       }
       throw new Error("Timed out authorizing the account")
     },
@@ -112,6 +125,7 @@ export async function authorizeDevice(options = {}) {
 }
 
 export async function authorizeBrowser(options = {}) {
+  options.signal?.throwIfAborted()
   const issuer = options.issuer ?? ISSUER
   const fetcher = options.fetch ?? fetch
   const verifier = randomBytes(32).toString("base64url")
@@ -124,8 +138,14 @@ export async function authorizeBrowser(options = {}) {
   let redirectUri
   let completed = false
   let timer
+  const abort = () => {
+    completed = true
+    rejectCallback(options.signal.reason)
+    close()
+  }
   const close = () => {
     clearTimeout(timer)
+    options.signal?.removeEventListener("abort", abort)
     if (server.listening) server.close()
   }
   const server = createServer(async (request, response) => {
@@ -164,6 +184,11 @@ export async function authorizeBrowser(options = {}) {
     server.once("error", reject)
     server.listen(options.port ?? 1455, "127.0.0.1", resolve)
   })
+  options.signal?.addEventListener("abort", abort, { once: true })
+  if (options.signal?.aborted) {
+    abort()
+    options.signal.throwIfAborted()
+  }
   redirectUri = `http://localhost:${server.address().port}/auth/callback`
   const params = new URLSearchParams({
     response_type: "code", client_id: CLIENT_ID, redirect_uri: redirectUri,

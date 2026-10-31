@@ -9,7 +9,7 @@ import { createStore } from "../src/store.js"
 const oauthModule = new URL("../src/oauth.js", import.meta.url)
 
 async function loadOAuth() {
-  assert.ok(existsSync(oauthModule), "o fluxo OAuth ainda não foi implementado")
+  assert.ok(existsSync(oauthModule), "OAuth flow is not implemented")
   return import(oauthModule)
 }
 
@@ -23,7 +23,7 @@ function jwt(claims) {
   return `e30.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`
 }
 
-test("renova apenas uma vez quando duas requisições usam o token expirado", async (t) => {
+test("refreshes only once when two requests use an expired token", async (t) => {
   const { refreshIfNeeded } = await loadOAuth()
   const store = await makeStore(t)
   await store.upsert({ type: "oauth", accountId: "one", access: "old", refresh: "old-refresh", expires: 1 })
@@ -49,7 +49,7 @@ test("renova apenas uma vez quando duas requisições usam o token expirado", as
   assert.equal((await store.list())[0].auth.refresh, "new-refresh")
 })
 
-test("não substitui credenciais quando o servidor rejeita o refresh", async (t) => {
+test("does not replace credentials when the server rejects refresh", async (t) => {
   const { refreshIfNeeded } = await loadOAuth()
   const store = await makeStore(t)
   await store.upsert({ type: "oauth", accountId: "one", access: "old", refresh: "old-refresh", expires: 1 })
@@ -57,7 +57,7 @@ test("não substitui credenciais quando o servidor rejeita o refresh", async (t)
   assert.equal((await store.list())[0].auth.refresh, "old-refresh")
 })
 
-test("o login por dispositivo entrega as credenciais e a identidade da conta", async () => {
+test("device login returns credentials and account identity", async () => {
   const { authorizeDevice } = await loadOAuth()
   let polling = 0
   const requests = []
@@ -80,7 +80,7 @@ test("o login por dispositivo entrega as credenciais e a identidade da conta", a
   assert.equal(new URLSearchParams(requests.at(-1).body).get("code_verifier"), "verifier")
 })
 
-test("o login usa o sujeito do access token se o id token não o contiver", async () => {
+test("login uses the access token subject when the ID token does not contain it", async () => {
   const { authorizeDevice } = await loadOAuth()
   const fakeFetch = async (url) => {
     if (url.endsWith("/usercode")) return Response.json({ device_auth_id: "device", user_code: "ABCD", interval: "1" })
@@ -91,7 +91,7 @@ test("o login usa o sujeito do access token se o id token não o contiver", asyn
   assert.equal(result.userId, "person")
 })
 
-test("o login por navegador rejeita state incorreto e aceita o retorno correto", async () => {
+test("browser login rejects an incorrect state and accepts the correct callback", async () => {
   const { authorizeBrowser } = await loadOAuth()
   const fakeFetch = async (_url, init) => {
     const body = new URLSearchParams(init.body)
@@ -111,7 +111,7 @@ test("o login por navegador rejeita state incorreto e aceita o retorno correto",
   assert.equal((await result).accountId, "identity")
 })
 
-test("uma autorização por navegador abandonada libera a porta após expirar", async () => {
+test("an abandoned browser authorization releases its port after expiration", async () => {
   const { authorizeBrowser } = await loadOAuth()
   const flow = await authorizeBrowser({ port: 0, timeoutMs: 20, fetch: async () => Response.json({ access_token: "access", refresh_token: "refresh", expires_in: 60 }) })
   const url = new URL(flow.url)
@@ -127,4 +127,15 @@ test("uma autorização por navegador abandonada libera a porta após expirar", 
     await completion
   }
   assert.equal(stillListening, false)
+})
+
+test("cancelling browser authorization closes its local listener", async () => {
+  const { authorizeBrowser } = await loadOAuth()
+  const abort = new AbortController()
+  const flow = await authorizeBrowser({ port: 0, signal: abort.signal })
+  const redirect = new URL(new URL(flow.url).searchParams.get("redirect_uri"))
+  const completion = flow.callback()
+  abort.abort()
+  await assert.rejects(completion, { name: "AbortError" })
+  await assert.rejects(fetch(`http://127.0.0.1:${redirect.port}/auth/callback`))
 })

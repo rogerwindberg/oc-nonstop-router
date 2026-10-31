@@ -23,6 +23,14 @@ function accountId(auth) {
   return `account-${createHash("sha256").update(auth.refresh).digest("hex").slice(0, 24)}`
 }
 
+export function sameAccount(left, right) {
+  if (typeof left.refresh === "string" && left.refresh && left.refresh === right.refresh) return true
+  const a = identity(left)
+  const b = identity(right)
+  if (a.subject || b.subject) return Boolean(a.subject && b.subject && a.subject === b.subject && a.workspace === b.workspace)
+  return Boolean(a.workspace && a.workspace === b.workspace)
+}
+
 function validAuth(auth) {
   return auth?.type === "oauth" && typeof auth.access === "string" && auth.access.length > 0 &&
     typeof auth.refresh === "string" && auth.refresh.length > 0 && Number.isFinite(auth.expires) && auth.expires >= 0
@@ -122,6 +130,49 @@ export function createStore(options = {}) {
     directory,
     async list() {
       return (await readState()).accounts
+    },
+    async isEnabled() {
+      return (await readState()).enabled !== false
+    },
+    async setEnabled(enabled) {
+      if (typeof enabled !== "boolean") throw new Error("Invalid router state")
+      return withLock(async () => {
+        const state = await readState()
+        state.enabled = enabled
+        await writeState(state)
+      })
+    },
+    async rename(id, name) {
+      if (typeof name !== "string" || !name.trim() || name.trim().length > 80) throw new Error("Invalid account name")
+      return this.update(id, (account) => { account.name = name.trim() })
+    },
+    async move(id, direction) {
+      if (direction !== -1 && direction !== 1) throw new Error("Invalid direction")
+      return withLock(async () => {
+        const state = await readState()
+        const index = state.accounts.findIndex((account) => account.id === id)
+        if (index < 0) throw new Error("Account not found")
+        if (state.accounts[index].inRotation === false) return
+        let target = index + direction
+        while (target >= 0 && target < state.accounts.length && state.accounts[target].inRotation === false) target += direction
+        if (target >= 0 && target < state.accounts.length) {
+          ;[state.accounts[index], state.accounts[target]] = [state.accounts[target], state.accounts[index]]
+          await writeState(state)
+        }
+      })
+    },
+    async setInRotation(id, included) {
+      if (typeof included !== "boolean") throw new Error("Invalid account state")
+      return withLock(async () => {
+        const state = await readState()
+        const index = state.accounts.findIndex((account) => account.id === id)
+        if (index < 0) throw new Error("Account not found")
+        const account = state.accounts[index]
+        const wasExcluded = account.inRotation === false
+        account.inRotation = included
+        if (included && wasExcluded) state.accounts.push(...state.accounts.splice(index, 1))
+        await writeState(state)
+      })
     },
     async upsert(auth, name) {
       if (!validAuth(auth)) throw new Error("Invalid OpenAI OAuth credentials")

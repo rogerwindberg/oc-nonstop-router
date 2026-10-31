@@ -4,7 +4,11 @@
   "description": "OpenAI OAuth account routing for OpenCode 1 with automatic failover and retry.",
   "type": "module",
   "main": "./src/index.js",
-  "exports": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./server": "./src/index.js",
+    "./tui": "./src/tui.js"
+  },
   "bin": {
     "nonstop-router": "src/cli.js"
   },
@@ -22,10 +26,23 @@
   },
   "homepage": "https://github.com/rogerwindberg/oc-nonstop-router#readme",
   "bugs": "https://github.com/rogerwindberg/oc-nonstop-router/issues",
-  "keywords": ["opencode", "plugin", "openai", "oauth", "multi-account", "rate-limit"],
+  "keywords": [
+    "opencode",
+    "plugin",
+    "openai",
+    "oauth",
+    "multi-account",
+    "rate-limit"
+  ],
   "author": "Roger Windberg",
   "license": "MIT",
   "scripts": {
+    "build": "node scripts/build-tui.js",
     "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-typescript": "7.27.1",
+    "babel-preset-solid": "1.9.16"
   }
 }

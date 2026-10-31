@@ -5,7 +5,7 @@ import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
 
-test("o pacote instalado exporta o plugin e permite consultar status sem credenciais", { timeout: 60_000 }, async (t) => {
+test("the installed package exports the plugin and shows status without credentials", { timeout: 60_000 }, async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "oc-nonstop-router-package-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/TOKEN|SECRET|PASSWORD|API_KEY|^OPENCODE_|^NPM_CONFIG_/i.test(key)))
